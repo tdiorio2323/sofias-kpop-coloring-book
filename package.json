@@ -3,15 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
     "dev": "next dev",
+    "build": "next build",
+    "start": "next start -p 3000",
     "lint": "next lint",
-    "start": "next start",
-    "test": "pnpm test:unit && pnpm test:e2e",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm test:unit",
     "test:unit": "vitest run",
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:mobile": "playwright test tests/mobile.spec.ts",
+    "lighthouse": "pnpm dlx @lhci/cli autorun",
+    "validate": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "1.2.2",
