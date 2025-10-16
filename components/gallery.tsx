@@ -21,9 +21,13 @@ export function Gallery({ isOpen, onClose, onOpenColoring }: GalleryProps) {
       setSavedColorings(colorings.sort((a, b) => b.timestamp - a.timestamp))
       
       // Load favorites from localStorage
-      const savedFavorites = localStorage.getItem('kpop-favorites')
-      if (savedFavorites) {
-        setFavorites(new Set(JSON.parse(savedFavorites)))
+      try {
+        const savedFavorites = localStorage.getItem('kpop-favorites')
+        if (savedFavorites) {
+          setFavorites(new Set(JSON.parse(savedFavorites)))
+        }
+      } catch (error) {
+        console.error('Failed to load favorites:', error)
       }
     }
   }, [isOpen])
@@ -38,7 +42,13 @@ export function Gallery({ isOpen, onClose, onOpenColoring }: GalleryProps) {
       toast.success("Added to favorites! ⭐")
     }
     setFavorites(newFavorites)
-    localStorage.setItem('kpop-favorites', JSON.stringify(Array.from(newFavorites)))
+    
+    try {
+      localStorage.setItem('kpop-favorites', JSON.stringify(Array.from(newFavorites)))
+    } catch (error) {
+      console.error('Failed to save favorites:', error)
+      toast.error('Could not save favorite (storage full or private mode)')
+    }
   }
 
   const downloadArtwork = (coloring: SavedColoring) => {
@@ -50,11 +60,16 @@ export function Gallery({ isOpen, onClose, onOpenColoring }: GalleryProps) {
   }
 
   const deleteArtwork = (pageId: number) => {
-    const colorings = getSavedColorings()
-    const filtered = colorings.filter(c => c.pageId !== pageId)
-    localStorage.setItem('kpop-colorings', JSON.stringify(filtered))
-    setSavedColorings(filtered)
-    toast.info("Artwork deleted")
+    try {
+      const colorings = getSavedColorings()
+      const filtered = colorings.filter(c => c.pageId !== pageId)
+      localStorage.setItem('kpop-colorings', JSON.stringify(filtered))
+      setSavedColorings(filtered)
+      toast.info("Artwork deleted")
+    } catch (error) {
+      console.error('Failed to delete artwork:', error)
+      toast.error('Could not delete artwork (storage error)')
+    }
   }
 
   if (!isOpen) return null
