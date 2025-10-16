@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { soundEffects } from "@/lib/sound-effects"
+import { Sparkles } from "lucide-react"
 
 export interface Character {
   id: string
@@ -15,23 +16,36 @@ export interface Character {
 interface CharacterSelectProps {
   characters: Character[]
   onSelectCharacter: (character: Character) => void
+  onEnterSofiasRealm?: () => void
 }
 
-export function CharacterSelect({ characters, onSelectCharacter }: CharacterSelectProps) {
+export function CharacterSelect({ characters, onSelectCharacter, onEnterSofiasRealm }: CharacterSelectProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [sparkles, setSparkles] = useState<Array<{ left: number; top: number; delay: number }>>([])
+
+  useEffect(() => {
+    // Generate sparkles on client side only to avoid hydration mismatch
+    setSparkles(
+      Array.from({ length: 30 }, () => ({
+        left: Math.random() * 100,
+        top: Math.random() * 100,
+        delay: Math.random() * 3,
+      })),
+    )
+  }, [])
 
   return (
     <div className="min-h-screen cosmic-background flex flex-col items-center justify-center p-4 relative overflow-hidden">
       {/* Animated background sparkles */}
       <div className="absolute inset-0 pointer-events-none">
-        {[...Array(30)].map((_, i) => (
+        {sparkles.map((sparkle, i) => (
           <div
             key={i}
             className="absolute w-2 h-2 bg-white/80 rounded-full glitter-effect"
             style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 3}s`,
+              left: `${sparkle.left}%`,
+              top: `${sparkle.top}%`,
+              animationDelay: `${sparkle.delay}s`,
             }}
           />
         ))}
@@ -40,7 +54,24 @@ export function CharacterSelect({ characters, onSelectCharacter }: CharacterSele
       {/* Title */}
       <div className="text-center mb-12 z-10">
         <h1 className="text-5xl md:text-7xl font-bold text-foreground mb-4 drop-shadow-lg">Choose Your Character</h1>
-        <p className="text-xl md:text-2xl text-muted-foreground">Pick a HUNTR/X member to start coloring!</p>
+        <p className="text-xl md:text-2xl text-white mb-6 drop-shadow-lg">Pick a HUNTR/X member to start coloring!</p>
+        
+        {/* Enter Sofia's Realm Button - Centered below title */}
+        {onEnterSofiasRealm && (
+          <div className="mt-8 animate-in fade-in slide-in-from-top duration-700">
+            <button
+              onClick={onEnterSofiasRealm}
+              className="group relative px-8 py-4 bg-gradient-to-r from-primary via-accent to-secondary hover:from-secondary hover:via-accent hover:to-primary rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-white/20 rounded-full blur-xl group-hover:bg-white/30 transition-all" />
+              <div className="relative flex items-center gap-3">
+                <Sparkles className="w-6 h-6 text-white animate-pulse" />
+                <span className="text-lg font-bold text-white drop-shadow-lg">Enter Sofia's Realm</span>
+                <Sparkles className="w-6 h-6 text-white animate-pulse" />
+              </div>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Character grid */}

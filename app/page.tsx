@@ -1,9 +1,11 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { CharacterSelect, type Character } from "@/components/character-select"
 import { ColoringCarousel } from "@/components/coloring-carousel"
 import { ColoringCanvas } from "@/components/coloring-canvas"
+import { Sparkles } from "lucide-react"
 
 const characters: Character[] = [
   {
@@ -90,14 +92,19 @@ const coloringPagesByCharacter: Record<string, Array<{ id: number; src: string; 
 }
 
 export default function Home() {
+  const router = useRouter()
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null)
   const [selectedPage, setSelectedPage] = useState<(typeof coloringPagesByCharacter)[string][0] | null>(null)
 
   if (!selectedCharacter) {
     return (
-      <div className="concert-background min-h-screen">
+      <div className="cosmic-background min-h-screen relative">
         <div className="relative z-10">
-          <CharacterSelect characters={characters} onSelectCharacter={setSelectedCharacter} />
+          <CharacterSelect 
+            characters={characters} 
+            onSelectCharacter={setSelectedCharacter}
+            onEnterSofiasRealm={() => router.push("/sofia/coloring")}
+          />
         </div>
       </div>
     )
@@ -116,7 +123,7 @@ export default function Home() {
   }
 
   return (
-    <div className="concert-background min-h-screen">
+    <div className="cosmic-background min-h-screen">
       <div className="relative z-10">
         <ColoringCarousel
           pages={characterPages}
