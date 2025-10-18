@@ -123,25 +123,6 @@
     12 12, crosshair;
 }
 
-/* Convert photos to coloring book outlines */
-.coloring-outline {
-  filter: grayscale(100%) contrast(200%) brightness(120%);
-  mix-blend-mode: multiply;
-}
-
-.coloring-page-base {
-  background: white;
-}
-
-/* Alternative: Edge detection style for coloring pages */
-.edge-detection {
-  filter: 
-    grayscale(100%)
-    contrast(300%)
-    brightness(150%)
-    invert(1);
-}
-
 /* Replaced concert background with cosmic/galactic theme */
 /* Cosmic background with animated nebula and stars */
 @keyframes cosmic-drift {

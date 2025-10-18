@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import Image from "next/image"
 import { ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react"
 import { soundEffects } from "@/lib/sound-effects"
@@ -21,18 +21,6 @@ interface ColoringCarouselProps {
 
 export function ColoringCarousel({ pages, character, onSelectPage, onBackToCharacters }: ColoringCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [sparkles, setSparkles] = useState<Array<{ left: number; top: number; delay: number }>>([])
-
-  useEffect(() => {
-    // Generate sparkles on client side only to avoid hydration mismatch
-    setSparkles(
-      Array.from({ length: 20 }, () => ({
-        left: Math.random() * 100,
-        top: Math.random() * 100,
-        delay: Math.random() * 2,
-      })),
-    )
-  }, [])
 
   if (pages.length === 0) {
     return (
@@ -72,14 +60,14 @@ export function ColoringCarousel({ pages, character, onSelectPage, onBackToChara
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden">
       {/* Animated background sparkles */}
       <div className="absolute inset-0 pointer-events-none">
-        {sparkles.map((sparkle, i) => (
+        {[...Array(20)].map((_, i) => (
           <div
             key={i}
             className="absolute w-2 h-2 bg-primary rounded-full glitter-effect"
             style={{
-              left: `${sparkle.left}%`,
-              top: `${sparkle.top}%`,
-              animationDelay: `${sparkle.delay}s`,
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              animationDelay: `${Math.random() * 2}s`,
             }}
           />
         ))}
