@@ -3,9 +3,15 @@
 import type React from "react"
 
 import { useRef, useState, useEffect, useCallback } from "react"
-import { Home, Undo2, Eraser, Sparkles, BookOpen } from "lucide-react"
+import { Home, Undo2, Redo2, Eraser, Sparkles, BookOpen, Download } from "lucide-react"
 import { soundEffects } from "@/lib/sound-effects"
-import { saveColoring, getSavedColoring, unlockRandomSticker } from "@/lib/storage"
+import {
+  saveColoring,
+  getSavedColoring,
+  unlockRandomSticker,
+  saveCompressedSnapshot,
+  loadCompressedSnapshot,
+} from "@/lib/storage"
 import type { Sticker } from "@/lib/storage"
 import { StickerNotification } from "@/components/sticker-notification"
 import { StickerBook } from "@/components/sticker-book"
@@ -17,10 +23,15 @@ interface ColoringCanvasProps {
     name: string
   }
   onBack: () => void
-  characterColor?: string // Added optional character color prop
+  characterColor?: string
 }
 
-type BrushType = "crayon" | "glitter" | "laser"
+type BrushType = "crayon" | "glitter" | "laser" | "eraser"
+
+interface ExportOptions {
+  transparent?: boolean
+  filenameBase?: string
+}
 
 const colors = [
   { name: "Magenta", value: "#FF1493", glitter: true },
@@ -35,11 +46,24 @@ const colors = [
 
 export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
+  const rafIdRef = useRef<number | undefined>()
+  const pointsRef = useRef<{ x: number; y: number }[]>([])
+  const activePointerIdRef = useRef<number | null>(null)
+  const fpsFramesRef = useRef<number[]>([])
+  const lastFrameTimeRef = useRef(Date.now())
+  const glitterCanvasRef = useRef<HTMLCanvasElement | null>(null)
+
   const [selectedColor, setSelectedColor] = useState(colors[0])
   const [brushType, setBrushType] = useState<BrushType>("crayon")
+  const [brushSize, setBrushSize] = useState(20)
   const [isDrawing, setIsDrawing] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
-  const [history, setHistory] = useState<ImageData[]>([])
+
+  const [history, setHistory] = useState<string[]>([]) // Store compressed base64 strings
+  const [historyIndex, setHistoryIndex] = useState(-1)
   const [completionPercentage, setCompletionPercentage] = useState(0)
   const [showCompletionEffect, setShowCompletionEffect] = useState(false)
   const [newSticker, setNewSticker] = useState<Sticker | null>(null)
@@ -48,35 +72,71 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
   const hasUnlockedStickerRef = useRef(false)
 
   useEffect(() => {
+    const glitterCanvas = document.createElement("canvas")
+    glitterCanvas.width = 20
+    glitterCanvas.height = 20
+    const glitterCtx = glitterCanvas.getContext("2d")
+
+    if (glitterCtx) {
+      // Pre-render glitter sparkles
+      for (let i = 0; i < 5; i++) {
+        glitterCtx.fillStyle = "rgba(255, 255, 255, 0.8)"
+        glitterCtx.fillRect(Math.random() * 20, Math.random() * 20, 2, 2)
+      }
+    }
+
+    glitterCanvasRef.current = glitterCanvas
+  }, [])
+
+  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const ctx = canvas.getContext("2d")
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })
     if (!ctx) return
 
-    const container = canvas.parentElement
+    ctxRef.current = ctx
+
+    const container = containerRef.current
     if (container) {
-      canvas.width = container.clientWidth
-      canvas.height = container.clientHeight
+      const rect = container.getBoundingClientRect()
+      canvas.width = rect.width
+      canvas.height = rect.height
     }
 
-    const savedColoring = getSavedColoring(page.id)
-
-    if (savedColoring) {
-      const img = new window.Image()
-      img.src = savedColoring.dataUrl
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0)
-        saveToHistory()
-        setCompletionPercentage(savedColoring.completionPercentage)
+    loadCompressedSnapshot(page.id).then((snapshot) => {
+      if (snapshot) {
+        const img = new window.Image()
+        img.src = snapshot.dataUrl
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0)
+          saveToHistory()
+          console.info(`[v0] Loaded compressed snapshot: ${(snapshot.bytes / 1024).toFixed(1)}KB`)
+        }
+        img.onerror = () => {
+          console.error("[v0] Failed to load compressed snapshot, loading fresh page")
+          loadFreshPage()
+        }
+      } else {
+        // Fallback to old localStorage method
+        const savedColoring = getSavedColoring(page.id)
+        if (savedColoring) {
+          const img = new window.Image()
+          img.src = savedColoring.dataUrl
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0)
+            saveToHistory()
+            setCompletionPercentage(savedColoring.completionPercentage)
+          }
+          img.onerror = () => {
+            console.error("[v0] Failed to load saved coloring, loading fresh page")
+            loadFreshPage()
+          }
+        } else {
+          loadFreshPage()
+        }
       }
-      img.onerror = () => {
-        console.error("[v0] Failed to load saved coloring, loading fresh page")
-        loadFreshPage()
-      }
-    } else {
-      loadFreshPage()
-    }
+    })
 
     function loadFreshPage() {
       const img = new window.Image()
@@ -105,36 +165,60 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
         ctx.fillText("Please try another page", canvas.width / 2, canvas.height / 2 + 30)
       }
     }
+
+    return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current)
+      }
+    }
   }, [page.src, page.id])
 
   useEffect(() => {
     if (history.length > 0 && history.length % 10 === 0) {
       const canvas = canvasRef.current
       if (canvas) {
+        saveCompressedSnapshot(page.id, canvas)
+
+        // Also save to old format for compatibility
         const dataUrl = canvas.toDataURL()
         saveColoring(page.id, dataUrl, completionPercentage)
       }
     }
   }, [history.length, page.id, completionPercentage])
 
-  const saveToHistory = () => {
+  const saveToHistory = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return
 
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    setHistory((prev) => [...prev.slice(-9), imageData])
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          const base64 = reader.result as string
+          setHistory((prev) => {
+            const newHistory = prev.slice(0, historyIndex + 1)
+            newHistory.push(base64)
+            // Keep last 50 snapshots
+            return newHistory.slice(-50)
+          })
+          setHistoryIndex((prev) => Math.min(prev + 1, 49))
+        }
+        reader.readAsDataURL(blob)
+      },
+      "image/webp",
+      0.9,
+    )
 
-    calculateCompletion()
-  }
+    setTimeout(() => calculateCompletion(), 500)
+  }, [historyIndex])
 
-  const calculateCompletion = () => {
+  const calculateCompletion = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const ctx = canvas.getContext("2d")
+    const ctx = ctxRef.current
     if (!ctx) return
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
@@ -143,7 +227,7 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
     let coloredPixels = 0
     let totalPixels = 0
 
-    for (let i = 0; i < data.length; i += 40) {
+    for (let i = 0; i < data.length; i += 160) {
       const r = data[i]
       const g = data[i + 1]
       const b = data[i + 2]
@@ -173,34 +257,58 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
         setShowCompletionEffect(false)
       }, 2000)
     }
-  }
+  }, [showCompletionEffect])
 
-  const undo = () => {
-    if (history.length <= 1) return
+  const undo = useCallback(() => {
+    if (historyIndex <= 0) return
 
     const canvas = canvasRef.current
-    if (!canvas) return
+    const ctx = ctxRef.current
+    if (!canvas || !ctx) return
 
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-
-    const newHistory = history.slice(0, -1)
-    const previousState = newHistory[newHistory.length - 1]
+    const newIndex = historyIndex - 1
+    const previousState = history[newIndex]
 
     if (previousState) {
-      ctx.putImageData(previousState, 0, 0)
-      setHistory(newHistory)
-      soundEffects.playWhoosh()
-      calculateCompletion()
+      const img = new window.Image()
+      img.src = previousState
+      img.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0)
+        setHistoryIndex(newIndex)
+        soundEffects.playWhoosh()
+        calculateCompletion()
+      }
     }
-  }
+  }, [history, historyIndex, calculateCompletion])
+
+  const redo = useCallback(() => {
+    if (historyIndex >= history.length - 1) return
+
+    const canvas = canvasRef.current
+    const ctx = ctxRef.current
+    if (!canvas || !ctx) return
+
+    const newIndex = historyIndex + 1
+    const nextState = history[newIndex]
+
+    if (nextState) {
+      const img = new window.Image()
+      img.src = nextState
+      img.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0)
+        setHistoryIndex(newIndex)
+        soundEffects.playWhoosh()
+        calculateCompletion()
+      }
+    }
+  }, [history, historyIndex, calculateCompletion])
 
   const clearCanvas = () => {
     const canvas = canvasRef.current
-    if (!canvas) return
-
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
+    const ctx = ctxRef.current
+    if (!canvas || !ctx) return
 
     const img = new window.Image()
     img.crossOrigin = "anonymous"
@@ -229,29 +337,82 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
     hasUnlockedStickerRef.current = false
   }
 
-  const draw = useCallback(
-    (x: number, y: number) => {
+  const exportImage = useCallback(
+    (opts?: ExportOptions) => {
       const canvas = canvasRef.current
       if (!canvas) return
 
-      const ctx = canvas.getContext("2d")
-      if (!ctx) return
+      const filenameBase = opts?.filenameBase || page.name
+      const timestamp = Date.now()
+      const filename = `${filenameBase}-${timestamp}.png`
 
-      ctx.globalCompositeOperation = "source-over"
-      ctx.strokeStyle = selectedColor.value
-      ctx.lineWidth = brushType === "laser" ? 3 : 20
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          console.error("[v0] Failed to export image")
+          return
+        }
+
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = filename
+        a.click()
+        URL.revokeObjectURL(url)
+
+        soundEffects.playLetsGo()
+        console.info(`[v0] Exported image: ${filename} (${(blob.size / 1024).toFixed(1)}KB)`)
+      }, "image/png")
+    },
+    [page.name],
+  )
+
+  const trackFPS = useCallback(() => {
+    const now = Date.now()
+    const delta = now - lastFrameTimeRef.current
+    const fps = 1000 / delta
+
+    fpsFramesRef.current.push(fps)
+    if (fpsFramesRef.current.length > 60) {
+      fpsFramesRef.current.shift()
+    }
+
+    lastFrameTimeRef.current = now
+
+    // Log average FPS every 60 frames
+    if (fpsFramesRef.current.length === 60) {
+      const avgFPS = fpsFramesRef.current.reduce((a, b) => a + b, 0) / 60
+      console.info(`[canvas] avgFPS=${avgFPS.toFixed(1)}`)
+    }
+  }, [])
+
+  const draw = useCallback(
+    (x: number, y: number) => {
+      const canvas = canvasRef.current
+      const ctx = ctxRef.current
+      if (!canvas || !ctx) return
+
+      trackFPS()
+
+      // Add point to buffer
+      pointsRef.current.push({ x, y })
+
+      if (brushType === "eraser") {
+        ctx.globalCompositeOperation = "destination-out"
+        ctx.strokeStyle = "rgba(0,0,0,1)"
+      } else {
+        ctx.globalCompositeOperation = "source-over"
+        ctx.strokeStyle = selectedColor.value
+      }
+
+      ctx.lineWidth = brushType === "laser" ? Math.max(3, brushSize / 4) : brushSize
       ctx.lineCap = "round"
       ctx.lineJoin = "round"
 
-      if (brushType === "glitter") {
-        for (let i = 0; i < 3; i++) {
-          const offsetX = (Math.random() - 0.5) * 10
-          const offsetY = (Math.random() - 0.5) * 10
-          ctx.fillStyle = selectedColor.value
-          ctx.globalAlpha = Math.random() * 0.5 + 0.5
-          ctx.fillRect(x + offsetX, y + offsetY, 4, 4)
-        }
-        ctx.globalAlpha = 1
+      if (brushType === "glitter" && glitterCanvasRef.current) {
+        ctx.save()
+        ctx.globalAlpha = 0.8
+        ctx.drawImage(glitterCanvasRef.current, x - 10, y - 10)
+        ctx.restore()
 
         const now = Date.now()
         if (now - lastSoundTimeRef.current > 200) {
@@ -260,49 +421,94 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
         }
       }
 
-      ctx.lineTo(x, y)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.moveTo(x, y)
+      const points = pointsRef.current
+      if (points.length < 3) {
+        // Not enough points for smoothing, draw straight line
+        ctx.lineTo(x, y)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+      } else {
+        // Use quadratic curves for smoothing
+        const p1 = points[points.length - 2]
+        const p2 = points[points.length - 1]
+        const midPoint = {
+          x: (p1.x + p2.x) / 2,
+          y: (p1.y + p2.y) / 2,
+        }
+
+        ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(midPoint.x, midPoint.y)
+
+        // Keep buffer size manageable
+        if (points.length > 8) {
+          pointsRef.current = points.slice(-4)
+        }
+      }
     },
-    [selectedColor, brushType],
+    [selectedColor, brushType, brushSize, trackFPS],
   )
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // Reject additional touches
+    if (activePointerIdRef.current !== null) return
+
+    activePointerIdRef.current = e.pointerId
+
     const canvas = canvasRef.current
-    if (!canvas) return
+    const ctx = ctxRef.current
+    if (!canvas || !ctx) return
 
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
     setIsDrawing(true)
+    pointsRef.current = [{ x, y }]
 
-    const ctx = canvas.getContext("2d")
-    if (ctx) {
-      ctx.beginPath()
-      ctx.moveTo(x, y)
-    }
+    ctx.beginPath()
+    ctx.moveTo(x, y)
   }
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing) return
+    if (e.pointerId !== activePointerIdRef.current) return
 
-    const canvas = canvasRef.current
-    if (!canvas) return
+    // Ignore if RAF already queued
+    if (rafIdRef.current) return
 
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+    rafIdRef.current = requestAnimationFrame(() => {
+      const canvas = canvasRef.current
+      if (!canvas) return
 
-    draw(x, y)
+      const rect = canvas.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+
+      draw(x, y)
+      rafIdRef.current = undefined
+    })
   }
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.pointerId !== activePointerIdRef.current) return
+
     if (isDrawing) {
       setIsDrawing(false)
+      activePointerIdRef.current = null
+      pointsRef.current = []
       saveToHistory()
     }
+  }
+
+  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.pointerId !== activePointerIdRef.current) return
+
+    setIsDrawing(false)
+    activePointerIdRef.current = null
+    pointsRef.current = []
   }
 
   const getCursorClass = () => {
@@ -311,6 +517,8 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
         return "canvas-cursor-glitter"
       case "laser":
         return "canvas-cursor-laser"
+      case "eraser":
+        return "cursor-crosshair"
       default:
         return "canvas-cursor-crayon"
     }
@@ -354,6 +562,15 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
 
         <div className="flex gap-2">
           <button
+            onClick={() => exportImage()}
+            className="w-14 h-14 bg-green-600 hover:bg-green-700 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
+            aria-label="Export PNG"
+            id="export"
+          >
+            <Download className="w-6 h-6 text-white" />
+          </button>
+
+          <button
             onClick={() => setShowStickerBook(true)}
             className="w-14 h-14 bg-secondary hover:bg-secondary/80 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
             aria-label="View sticker collection"
@@ -363,11 +580,20 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
 
           <button
             onClick={undo}
-            disabled={history.length <= 1}
+            disabled={historyIndex <= 0}
             className="w-14 h-14 bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
             aria-label="Undo"
           >
             <Undo2 className="w-6 h-6 text-accent-foreground" />
+          </button>
+
+          <button
+            onClick={redo}
+            disabled={historyIndex >= history.length - 1}
+            className="w-14 h-14 bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
+            aria-label="Redo"
+          >
+            <Redo2 className="w-6 h-6 text-accent-foreground" />
           </button>
 
           <button
@@ -384,13 +610,14 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
       </div>
 
       <div className="flex-1 flex items-center justify-center p-4 pt-24 pb-32">
-        <div className="relative w-full h-full max-w-4xl max-h-[80vh]">
+        <div ref={containerRef} className="relative w-full h-full max-w-4xl max-h-[80vh]">
           <canvas
             ref={canvasRef}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
             className={`w-full h-full rounded-2xl shadow-2xl touch-none ${getCursorClass()}`}
           />
           {completionPercentage > 10 && (
@@ -402,6 +629,19 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
       </div>
 
       <div className="absolute bottom-4 left-4 right-4 z-20">
+        <div className="flex justify-center items-center gap-4 mb-4">
+          <span className="text-sm font-medium text-foreground">Brush Size:</span>
+          <input
+            type="range"
+            min="1"
+            max="60"
+            value={brushSize}
+            onChange={(e) => setBrushSize(Number(e.target.value))}
+            className="w-48 h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+          />
+          <span className="text-sm font-medium text-foreground w-8">{brushSize}</span>
+        </div>
+
         <div className="flex justify-center gap-2 mb-4">
           <button
             onClick={() => setBrushType("crayon")}
@@ -440,6 +680,17 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
           >
             Laser
           </button>
+          <button
+            onClick={() => setBrushType("eraser")}
+            className={`px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2 ${
+              brushType === "eraser"
+                ? "bg-primary text-primary-foreground scale-110"
+                : "bg-muted text-muted-foreground hover:scale-105"
+            }`}
+          >
+            <Eraser className="w-4 h-4" />
+            Eraser
+          </button>
         </div>
 
         <div className="flex justify-center gap-3 flex-wrap max-w-2xl mx-auto">
@@ -448,10 +699,13 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
               key={color.name}
               onClick={() => {
                 setSelectedColor(color)
+                setBrushType("crayon") // Switch back to crayon when selecting color
                 soundEffects.playLetsGo()
               }}
               className={`w-16 h-16 rounded-full transition-all hover:scale-110 active:scale-95 ${
-                selectedColor.name === color.name ? "ring-4 ring-foreground scale-110" : "ring-2 ring-border"
+                selectedColor.name === color.name && brushType !== "eraser"
+                  ? "ring-4 ring-foreground scale-110"
+                  : "ring-2 ring-border"
               } ${color.glitter ? "glitter-effect" : ""}`}
               style={{ backgroundColor: color.value }}
               aria-label={`Select ${color.name}`}
