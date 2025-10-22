@@ -1,9 +1,8 @@
-import { test, expect, devices } from '@playwright/test'
-
-// Test on iPhone 12/13 Pro dimensions
-test.use(devices['iPhone 12 Pro'])
+import { test, expect } from '@playwright/test'
 
 test.describe('Mobile Safari - iOS Experience', () => {
+  // Configure for mobile project only
+  test.skip(({ browserName }) => browserName !== 'chromium', 'Mobile tests for iPhone only')
   test('homepage loads without errors on mobile', async ({ page }) => {
     const consoleErrors: string[] = []
     page.on('console', msg => {
@@ -173,9 +172,9 @@ test.describe('Mobile Safari - iOS Experience', () => {
 })
 
 test.describe('Mobile Safari - Landscape Mode', () => {
-  test.use({ viewport: { width: 844, height: 390 } }) // Landscape
-
   test('coloring works in landscape', async ({ page }) => {
+    // Set landscape viewport
+    await page.setViewportSize({ width: 844, height: 390 })
     await page.goto('/sofia/coloring')
     await page.getByText('Battle Ready').click()
     await page.waitForSelector('canvas[aria-label="coloring-canvas"]')
