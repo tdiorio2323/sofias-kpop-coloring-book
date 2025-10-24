@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { soundEffects } from "@/lib/sound-effects"
-import { Sparkles } from "lucide-react"
 
 export interface Character {
   id: string
@@ -16,36 +15,34 @@ export interface Character {
 interface CharacterSelectProps {
   characters: Character[]
   onSelectCharacter: (character: Character) => void
-  onEnterSofiasRealm?: () => void
 }
 
-export function CharacterSelect({ characters, onSelectCharacter, onEnterSofiasRealm }: CharacterSelectProps) {
+export function CharacterSelect({ characters, onSelectCharacter }: CharacterSelectProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [sparkles, setSparkles] = useState<Array<{ left: number; top: number; delay: number }>>([])
-
-  useEffect(() => {
-    // Generate sparkles on client side only to avoid hydration mismatch
-    setSparkles(
-      Array.from({ length: 30 }, () => ({
-        left: Math.random() * 100,
-        top: Math.random() * 100,
-        delay: Math.random() * 3,
-      })),
-    )
-  }, [])
 
   return (
-    <div className="min-h-screen cosmic-background flex flex-col items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      {/* Concert stage background image */}
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: "url(/images/concert-stage-background.jpg)",
+        }}
+      />
+
+      {/* Dark overlay for better text readability */}
+      <div className="absolute inset-0 bg-black/40" />
+
       {/* Animated background sparkles */}
       <div className="absolute inset-0 pointer-events-none">
-        {sparkles.map((sparkle, i) => (
+        {[...Array(30)].map((_, i) => (
           <div
             key={i}
             className="absolute w-2 h-2 bg-white/80 rounded-full glitter-effect"
             style={{
-              left: `${sparkle.left}%`,
-              top: `${sparkle.top}%`,
-              animationDelay: `${sparkle.delay}s`,
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              animationDelay: `${Math.random() * 3}s`,
             }}
           />
         ))}
@@ -53,25 +50,12 @@ export function CharacterSelect({ characters, onSelectCharacter, onEnterSofiasRe
 
       {/* Title */}
       <div className="text-center mb-12 z-10">
-        <h1 className="text-5xl md:text-7xl font-bold text-foreground mb-4 drop-shadow-lg">Choose Your Character</h1>
-        <p className="text-xl md:text-2xl text-white mb-6 drop-shadow-lg">Pick a HUNTR/X member to start coloring!</p>
-        
-        {/* Enter Sofia's Realm Button - Centered below title */}
-        {onEnterSofiasRealm && (
-          <div className="mt-8 animate-in fade-in slide-in-from-top duration-700">
-            <button
-              onClick={onEnterSofiasRealm}
-              className="group relative px-8 py-4 bg-gradient-to-r from-primary via-accent to-secondary hover:from-secondary hover:via-accent hover:to-primary rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-white/20 rounded-full blur-xl group-hover:bg-white/30 transition-all" />
-              <div className="relative flex items-center gap-3">
-                <Sparkles className="w-6 h-6 text-white animate-pulse" />
-                <span className="text-lg font-bold text-white drop-shadow-lg">Enter Sofia's Realm</span>
-                <Sparkles className="w-6 h-6 text-white animate-pulse" />
-              </div>
-            </button>
-          </div>
-        )}
+        <h1 className="text-5xl md:text-7xl font-bold text-white mb-4 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
+          Choose Your Character
+        </h1>
+        <p className="text-xl md:text-2xl text-white/90 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
+          Pick a HUNTR/X member to start coloring!
+        </p>
       </div>
 
       {/* Character grid */}
@@ -103,12 +87,24 @@ export function CharacterSelect({ characters, onSelectCharacter, onEnterSofiasRe
             >
               {/* Avatar placeholder */}
               <div className="absolute inset-0 flex items-center justify-center bg-card">
-                <div
-                  className="w-32 h-32 rounded-full flex items-center justify-center text-6xl font-bold"
-                  style={{ backgroundColor: character.color + "40", color: character.color }}
-                >
-                  {character.name.charAt(0)}
-                </div>
+                {character.avatar ? (
+                  <img
+                    src={character.avatar || "/placeholder.svg"}
+                    alt={character.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      // Fallback to letter if image fails to load
+                      e.currentTarget.style.display = "none"
+                    }}
+                  />
+                ) : (
+                  <div
+                    className="w-32 h-32 rounded-full flex items-center justify-center text-6xl font-bold"
+                    style={{ backgroundColor: character.color + "40", color: character.color }}
+                  >
+                    {character.name.charAt(0)}
+                  </div>
+                )}
               </div>
 
               {/* Hover overlay */}

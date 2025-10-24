@@ -3,8 +3,6 @@ class SoundEffects {
   private audioContext: AudioContext | null = null
 
   private getAudioContext() {
-    if (typeof window === 'undefined') return null
-    
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
     }
@@ -14,8 +12,6 @@ class SoundEffects {
   // Play a "whoosh" sound for undo
   playWhoosh() {
     const ctx = this.getAudioContext()
-    if (!ctx) return
-    
     const oscillator = ctx.createOscillator()
     const gainNode = ctx.createGain()
 
@@ -35,8 +31,6 @@ class SoundEffects {
   // Play a demon voice effect for clear confirmation
   playDemonVoice() {
     const ctx = this.getAudioContext()
-    if (!ctx) return
-    
     const oscillator = ctx.createOscillator()
     const gainNode = ctx.createGain()
 
@@ -58,8 +52,6 @@ class SoundEffects {
   // Play sparkle sound for glitter brush
   playSparkle() {
     const ctx = this.getAudioContext()
-    if (!ctx) return
-    
     const oscillator = ctx.createOscillator()
     const gainNode = ctx.createGain()
 
@@ -79,7 +71,6 @@ class SoundEffects {
   // Play power chord for weapon coloring
   playPowerChord() {
     const ctx = this.getAudioContext()
-    if (!ctx) return
 
     // Create multiple oscillators for a chord
     const frequencies = [220, 277, 330] // A major chord
@@ -108,7 +99,6 @@ class SoundEffects {
   // Play crowd cheer for completion
   playCrowdCheer() {
     const ctx = this.getAudioContext()
-    if (!ctx) return
 
     // Create noise for crowd effect
     const bufferSize = ctx.sampleRate * 2
@@ -142,8 +132,6 @@ class SoundEffects {
   // Play "Let's go!" chant effect
   playLetsGo() {
     const ctx = this.getAudioContext()
-    if (!ctx) return
-    
     const oscillator = ctx.createOscillator()
     const gainNode = ctx.createGain()
 

@@ -14,6 +14,15 @@ export interface Sticker {
   unlockedAt: number
 }
 
+export interface CompressedSnapshot {
+  pageId: number
+  dataUrl: string // WebP compressed base64
+  timestamp: number
+  width: number
+  height: number
+  bytes: number
+}
+
 const STORAGE_KEYS = {
   COLORINGS: "kpop-colorings",
   STICKERS: "kpop-stickers",
@@ -105,6 +114,41 @@ export function unlockRandomSticker(): Sticker | null {
     return newSticker
   } catch (error) {
     console.error("[v0] Failed to unlock sticker:", error)
+    return null
+  }
+}
+
+// Save compressed canvas snapshot
+import { idbSet, idbGet, compressCanvas, blobToBase64 } from "./idb-storage"
+
+export async function saveCompressedSnapshot(pageId: number, canvas: HTMLCanvasElement): Promise<void> {
+  try {
+    const blob = await compressCanvas(canvas, 0.9)
+    const dataUrl = await blobToBase64(blob)
+
+    const snapshot: CompressedSnapshot = {
+      pageId,
+      dataUrl,
+      timestamp: Date.now(),
+      width: canvas.width,
+      height: canvas.height,
+      bytes: blob.size,
+    }
+
+    await idbSet(`snapshot-${pageId}`, snapshot)
+    console.info(`[v0] Saved compressed snapshot: ${(blob.size / 1024).toFixed(1)}KB`)
+  } catch (error) {
+    console.error("[v0] Failed to save compressed snapshot:", error)
+  }
+}
+
+// Load compressed snapshot
+export async function loadCompressedSnapshot(pageId: number): Promise<CompressedSnapshot | null> {
+  try {
+    const snapshot = await idbGet<CompressedSnapshot>(`snapshot-${pageId}`)
+    return snapshot || null
+  } catch (error) {
+    console.error("[v0] Failed to load compressed snapshot:", error)
     return null
   }
 }
