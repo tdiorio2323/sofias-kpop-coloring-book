@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { soundEffects } from "@/lib/sound-effects"
 
 export interface Character {
@@ -19,6 +19,19 @@ interface CharacterSelectProps {
 
 export function CharacterSelect({ characters, onSelectCharacter }: CharacterSelectProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  // Generate sparkle positions client-side only to avoid SSR hydration mismatch
+  const [sparkles, setSparkles] = useState<Array<{ left: number; top: number; delay: number }>>([])
+
+  useEffect(() => {
+    // Generate random positions after component mounts (client-side only)
+    setSparkles(
+      Array.from({ length: 30 }, () => ({
+        left: Math.random() * 100,
+        top: Math.random() * 100,
+        delay: Math.random() * 3,
+      })),
+    )
+  }, []) // Empty dependency array = runs once after mount
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
@@ -33,16 +46,16 @@ export function CharacterSelect({ characters, onSelectCharacter }: CharacterSele
       {/* Dark overlay for better text readability */}
       <div className="absolute inset-0 bg-black/40" />
 
-      {/* Animated background sparkles */}
+      {/* Animated background sparkles - client-side rendered only */}
       <div className="absolute inset-0 pointer-events-none">
-        {[...Array(30)].map((_, i) => (
+        {sparkles.map((sparkle, i) => (
           <div
             key={i}
             className="absolute w-2 h-2 bg-white/80 rounded-full glitter-effect"
             style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 3}s`,
+              left: `${sparkle.left}%`,
+              top: `${sparkle.top}%`,
+              animationDelay: `${sparkle.delay}s`,
             }}
           />
         ))}

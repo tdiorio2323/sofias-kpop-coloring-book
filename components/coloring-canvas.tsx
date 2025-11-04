@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useRef, useState, useEffect, useCallback } from "react"
-import { Home, Undo2, Redo2, Eraser, Sparkles, BookOpen, Download } from "lucide-react"
+import { Home, Undo2, Redo2, Eraser, BookOpen, Download } from "lucide-react"
 import { soundEffects } from "@/lib/sound-effects"
 import {
   saveColoring,
@@ -26,8 +26,6 @@ interface ColoringCanvasProps {
   characterColor?: string
 }
 
-type BrushType = "crayon" | "glitter" | "laser" | "eraser"
-
 interface ExportOptions {
   transparent?: boolean
   filenameBase?: string
@@ -49,17 +47,8 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
   const containerRef = useRef<HTMLDivElement>(null)
 
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
-  const rafIdRef = useRef<number | undefined>()
-  const pointsRef = useRef<{ x: number; y: number }[]>([])
-  const activePointerIdRef = useRef<number | null>(null)
-  const fpsFramesRef = useRef<number[]>([])
-  const lastFrameTimeRef = useRef(Date.now())
-  const glitterCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const [selectedColor, setSelectedColor] = useState(colors[0])
-  const [brushType, setBrushType] = useState<BrushType>("crayon")
-  const [brushSize, setBrushSize] = useState(20)
-  const [isDrawing, setIsDrawing] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
 
   const [history, setHistory] = useState<string[]>([]) // Store compressed base64 strings
@@ -71,22 +60,6 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
   const lastSoundTimeRef = useRef(0)
   const hasUnlockedStickerRef = useRef(false)
 
-  useEffect(() => {
-    const glitterCanvas = document.createElement("canvas")
-    glitterCanvas.width = 20
-    glitterCanvas.height = 20
-    const glitterCtx = glitterCanvas.getContext("2d")
-
-    if (glitterCtx) {
-      // Pre-render glitter sparkles
-      for (let i = 0; i < 5; i++) {
-        glitterCtx.fillStyle = "rgba(255, 255, 255, 0.8)"
-        glitterCtx.fillRect(Math.random() * 20, Math.random() * 20, 2, 2)
-      }
-    }
-
-    glitterCanvasRef.current = glitterCanvas
-  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -139,10 +112,14 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
     })
 
     function loadFreshPage() {
+      if (!canvas || !ctx) return
+
       const img = new window.Image()
       img.crossOrigin = "anonymous"
       img.src = page.src
       img.onload = () => {
+        if (!canvas || !ctx) return
+
         ctx.fillStyle = "#FFFFFF"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
 
@@ -155,6 +132,8 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
         saveToHistory()
       }
       img.onerror = () => {
+        if (!canvas || !ctx) return
+
         console.error("[v0] Failed to load image:", page.src)
         ctx.fillStyle = "#FFFFFF"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -163,12 +142,6 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
         ctx.textAlign = "center"
         ctx.fillText("Image failed to load", canvas.width / 2, canvas.height / 2)
         ctx.fillText("Please try another page", canvas.width / 2, canvas.height / 2 + 30)
-      }
-    }
-
-    return () => {
-      if (rafIdRef.current) {
-        cancelAnimationFrame(rafIdRef.current)
       }
     }
   }, [page.src, page.id])
@@ -366,162 +339,89 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
     [page.name],
   )
 
-  const trackFPS = useCallback(() => {
-    const now = Date.now()
-    const delta = now - lastFrameTimeRef.current
-    const fps = 1000 / delta
-
-    fpsFramesRef.current.push(fps)
-    if (fpsFramesRef.current.length > 60) {
-      fpsFramesRef.current.shift()
-    }
-
-    lastFrameTimeRef.current = now
-
-    // Log average FPS every 60 frames
-    if (fpsFramesRef.current.length === 60) {
-      const avgFPS = fpsFramesRef.current.reduce((a, b) => a + b, 0) / 60
-      console.info(`[canvas] avgFPS=${avgFPS.toFixed(1)}`)
-    }
-  }, [])
-
-  const draw = useCallback(
-    (x: number, y: number) => {
+  const floodFill = useCallback(
+    (startX: number, startY: number) => {
       const canvas = canvasRef.current
       const ctx = ctxRef.current
       if (!canvas || !ctx) return
 
-      trackFPS()
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const data = imageData.data
+      const fillColor = selectedColor.value
 
-      // Add point to buffer
-      pointsRef.current.push({ x, y })
+      // Convert hex to RGB
+      const r = parseInt(fillColor.slice(1, 3), 16)
+      const g = parseInt(fillColor.slice(3, 5), 16)
+      const b = parseInt(fillColor.slice(5, 7), 16)
 
-      if (brushType === "eraser") {
-        ctx.globalCompositeOperation = "destination-out"
-        ctx.strokeStyle = "rgba(0,0,0,1)"
-      } else {
-        ctx.globalCompositeOperation = "source-over"
-        ctx.strokeStyle = selectedColor.value
+      // Get target color at click position
+      const startIndex = (Math.floor(startY) * canvas.width + Math.floor(startX)) * 4
+      const targetR = data[startIndex]
+      const targetG = data[startIndex + 1]
+      const targetB = data[startIndex + 2]
+      const targetA = data[startIndex + 3]
+
+      // Don't fill if clicking on the same color
+      if (targetR === r && targetG === g && targetB === b) {
+        return
       }
 
-      ctx.lineWidth = brushType === "laser" ? Math.max(3, brushSize / 4) : brushSize
-      ctx.lineCap = "round"
-      ctx.lineJoin = "round"
-
-      if (brushType === "glitter" && glitterCanvasRef.current) {
-        ctx.save()
-        ctx.globalAlpha = 0.8
-        ctx.drawImage(glitterCanvasRef.current, x - 10, y - 10)
-        ctx.restore()
-
-        const now = Date.now()
-        if (now - lastSoundTimeRef.current > 200) {
-          soundEffects.playSparkle()
-          lastSoundTimeRef.current = now
-        }
+      // Color matching function with tolerance
+      const matchesTarget = (index: number) => {
+        const tolerance = 10
+        return (
+          Math.abs(data[index] - targetR) <= tolerance &&
+          Math.abs(data[index + 1] - targetG) <= tolerance &&
+          Math.abs(data[index + 2] - targetB) <= tolerance &&
+          Math.abs(data[index + 3] - targetA) <= tolerance
+        )
       }
 
-      const points = pointsRef.current
-      if (points.length < 3) {
-        // Not enough points for smoothing, draw straight line
-        ctx.lineTo(x, y)
-        ctx.stroke()
-        ctx.beginPath()
-        ctx.moveTo(x, y)
-      } else {
-        // Use quadratic curves for smoothing
-        const p1 = points[points.length - 2]
-        const p2 = points[points.length - 1]
-        const midPoint = {
-          x: (p1.x + p2.x) / 2,
-          y: (p1.y + p2.y) / 2,
+      // Flood fill using queue-based approach
+      const pixelsToFill: number[] = [startIndex]
+      const visited = new Set<number>()
+
+      while (pixelsToFill.length > 0) {
+        const currentIndex = pixelsToFill.pop()!
+
+        if (visited.has(currentIndex) || !matchesTarget(currentIndex)) {
+          continue
         }
 
-        ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y)
-        ctx.stroke()
-        ctx.beginPath()
-        ctx.moveTo(midPoint.x, midPoint.y)
+        visited.add(currentIndex)
 
-        // Keep buffer size manageable
-        if (points.length > 8) {
-          pointsRef.current = points.slice(-4)
-        }
+        // Fill pixel
+        data[currentIndex] = r
+        data[currentIndex + 1] = g
+        data[currentIndex + 2] = b
+        data[currentIndex + 3] = 255
+
+        const x = (currentIndex / 4) % canvas.width
+        const y = Math.floor(currentIndex / 4 / canvas.width)
+
+        // Add neighboring pixels
+        if (x > 0) pixelsToFill.push(currentIndex - 4) // Left
+        if (x < canvas.width - 1) pixelsToFill.push(currentIndex + 4) // Right
+        if (y > 0) pixelsToFill.push(currentIndex - canvas.width * 4) // Up
+        if (y < canvas.height - 1) pixelsToFill.push(currentIndex + canvas.width * 4) // Down
       }
+
+      ctx.putImageData(imageData, 0, 0)
+      saveToHistory()
+      soundEffects.playLetsGo()
     },
-    [selectedColor, brushType, brushSize, trackFPS],
+    [selectedColor, saveToHistory],
   )
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    // Reject additional touches
-    if (activePointerIdRef.current !== null) return
-
-    activePointerIdRef.current = e.pointerId
-
+  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
-    const ctx = ctxRef.current
-    if (!canvas || !ctx) return
+    if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
-    setIsDrawing(true)
-    pointsRef.current = [{ x, y }]
-
-    ctx.beginPath()
-    ctx.moveTo(x, y)
-  }
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return
-    if (e.pointerId !== activePointerIdRef.current) return
-
-    // Ignore if RAF already queued
-    if (rafIdRef.current) return
-
-    rafIdRef.current = requestAnimationFrame(() => {
-      const canvas = canvasRef.current
-      if (!canvas) return
-
-      const rect = canvas.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const y = e.clientY - rect.top
-
-      draw(x, y)
-      rafIdRef.current = undefined
-    })
-  }
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerId !== activePointerIdRef.current) return
-
-    if (isDrawing) {
-      setIsDrawing(false)
-      activePointerIdRef.current = null
-      pointsRef.current = []
-      saveToHistory()
-    }
-  }
-
-  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerId !== activePointerIdRef.current) return
-
-    setIsDrawing(false)
-    activePointerIdRef.current = null
-    pointsRef.current = []
-  }
-
-  const getCursorClass = () => {
-    switch (brushType) {
-      case "glitter":
-        return "canvas-cursor-glitter"
-      case "laser":
-        return "canvas-cursor-laser"
-      case "eraser":
-        return "cursor-crosshair"
-      default:
-        return "canvas-cursor-crayon"
-    }
+    floodFill(x, y)
   }
 
   return (
@@ -613,12 +513,8 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
         <div ref={containerRef} className="relative w-full h-full max-w-4xl max-h-[80vh]">
           <canvas
             ref={canvasRef}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
-            className={`w-full h-full rounded-2xl shadow-2xl touch-none ${getCursorClass()}`}
+            onClick={handleCanvasClick}
+            className="w-full h-full rounded-2xl shadow-2xl cursor-pointer"
           />
           {completionPercentage > 10 && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-card/90 backdrop-blur-sm px-4 py-2 rounded-full border-2 border-primary">
@@ -629,81 +525,16 @@ export function ColoringCanvas({ page, onBack, characterColor }: ColoringCanvasP
       </div>
 
       <div className="absolute bottom-4 left-4 right-4 z-20">
-        <div className="flex justify-center items-center gap-4 mb-4">
-          <span className="text-sm font-medium text-foreground">Brush Size:</span>
-          <input
-            type="range"
-            min="1"
-            max="60"
-            value={brushSize}
-            onChange={(e) => setBrushSize(Number(e.target.value))}
-            className="w-48 h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-          />
-          <span className="text-sm font-medium text-foreground w-8">{brushSize}</span>
-        </div>
-
-        <div className="flex justify-center gap-2 mb-4">
-          <button
-            onClick={() => setBrushType("crayon")}
-            className={`px-6 py-3 rounded-full font-bold transition-all ${
-              brushType === "crayon"
-                ? "bg-primary text-primary-foreground scale-110"
-                : "bg-muted text-muted-foreground hover:scale-105"
-            }`}
-          >
-            Crayon
-          </button>
-          <button
-            onClick={() => {
-              setBrushType("glitter")
-              soundEffects.playSparkle()
-            }}
-            className={`px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2 ${
-              brushType === "glitter"
-                ? "bg-primary text-primary-foreground scale-110"
-                : "bg-muted text-muted-foreground hover:scale-105"
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            Glitter
-          </button>
-          <button
-            onClick={() => {
-              setBrushType("laser")
-              soundEffects.playPowerChord()
-            }}
-            className={`px-6 py-3 rounded-full font-bold transition-all ${
-              brushType === "laser"
-                ? "bg-primary text-primary-foreground scale-110"
-                : "bg-muted text-muted-foreground hover:scale-105"
-            }`}
-          >
-            Laser
-          </button>
-          <button
-            onClick={() => setBrushType("eraser")}
-            className={`px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2 ${
-              brushType === "eraser"
-                ? "bg-primary text-primary-foreground scale-110"
-                : "bg-muted text-muted-foreground hover:scale-105"
-            }`}
-          >
-            <Eraser className="w-4 h-4" />
-            Eraser
-          </button>
-        </div>
-
         <div className="flex justify-center gap-3 flex-wrap max-w-2xl mx-auto">
           {colors.map((color) => (
             <button
               key={color.name}
               onClick={() => {
                 setSelectedColor(color)
-                setBrushType("crayon") // Switch back to crayon when selecting color
                 soundEffects.playLetsGo()
               }}
-              className={`w-16 h-16 rounded-full transition-all hover:scale-110 active:scale-95 ${
-                selectedColor.name === color.name && brushType !== "eraser"
+              className={`w-20 h-20 rounded-full transition-all hover:scale-110 active:scale-95 ${
+                selectedColor.name === color.name
                   ? "ring-4 ring-foreground scale-110"
                   : "ring-2 ring-border"
               } ${color.glitter ? "glitter-effect" : ""}`}

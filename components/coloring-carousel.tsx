@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Image from "next/image"
 import { ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react"
 import { soundEffects } from "@/lib/sound-effects"
@@ -21,6 +21,19 @@ interface ColoringCarouselProps {
 
 export function ColoringCarousel({ pages, character, onSelectPage, onBackToCharacters }: ColoringCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
+  // Generate sparkle positions client-side only to avoid SSR hydration mismatch
+  const [sparkles, setSparkles] = useState<Array<{ left: number; top: number; delay: number }>>([])
+
+  useEffect(() => {
+    // Generate random positions after component mounts (client-side only)
+    setSparkles(
+      Array.from({ length: 20 }, () => ({
+        left: Math.random() * 100,
+        top: Math.random() * 100,
+        delay: Math.random() * 2,
+      })),
+    )
+  }, []) // Empty dependency array = runs once after mount
 
   if (pages.length === 0) {
     return (
@@ -58,16 +71,16 @@ export function ColoringCarousel({ pages, character, onSelectPage, onBackToChara
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Animated background sparkles */}
+      {/* Animated background sparkles - client-side rendered only */}
       <div className="absolute inset-0 pointer-events-none">
-        {[...Array(20)].map((_, i) => (
+        {sparkles.map((sparkle, i) => (
           <div
             key={i}
             className="absolute w-2 h-2 bg-primary rounded-full glitter-effect"
             style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 2}s`,
+              left: `${sparkle.left}%`,
+              top: `${sparkle.top}%`,
+              animationDelay: `${sparkle.delay}s`,
             }}
           />
         ))}
